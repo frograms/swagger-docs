@@ -5,7 +5,6 @@ module Swagger
       DEFAULT_VER = "1.0"
       DEFAULT_CONFIG = {
         :api_file_path => "public/",
-        :api_file_name => "api-docs.json",
         :base_path => "/",
         :clean_directory => false,
         :formatting => :pretty
@@ -31,7 +30,7 @@ module Swagger
           resources = root.delete 'resources'
           root.merge!(config[:attributes] || {}) # merge custom user attributes like info
           # write the api-docs file
-          write_to_file("#{settings[:api_file_path]}/#{config[:api_file_name]}", root, config)
+          write_to_file("#{settings[:api_file_path]}/api-docs.json", root, config)
           # write the individual resource files
           resources.each do |resource|
             resource_file_path = resource.delete 'resourceFilePath'
@@ -58,7 +57,7 @@ module Swagger
         end
 
         def generate_doc(api_version, settings, config)
-          root = { "apiVersion" => api_version, "swaggerVersion" => "1.2", "basePath" => settings[:base_path] + "/", :apis => [] }
+          root = { "apiVersion" => api_version, "swaggerVersion" => "1.2", "basePathMetaData" => settings[:base_path_metadata] + "/", "basePath" => settings[:base_path] + "/", :apis => [] }
           results = {:processed => [], :skipped => []}
           resources = []
 
@@ -124,12 +123,12 @@ module Swagger
 
         def process_path(path, root, config, settings)
           return {action: :skipped, reason: :empty_path} if path.empty?
-          klass = Config.log_exception { "#{path.to_s.camelize}Controller".constantize } rescue nil
+          klass = "#{path.to_s.camelize}Controller".constantize rescue nil
           return {action: :skipped, path: path, reason: :klass_not_present} if !klass
           return {action: :skipped, path: path, reason: :not_swagger_resource} if !klass.methods.include?(:swagger_config) or !klass.swagger_config[:controller]
           apis, models, defined_nicknames = [], {}, []
           routes.select{|i| i.defaults[:controller] == path}.each do |route|
-            unless nickname_defined?(defined_nicknames, path, route) # only add once for each route once e.g. PATCH, PUT 
+            unless nickname_defined?(defined_nicknames, path, route) # only add once for each route once e.g. PATCH, PUT
               ret = get_route_path_apis(path, route, klass, settings, config)
               apis = apis + ret[:apis]
               models.merge!(ret[:models])
@@ -140,7 +139,7 @@ module Swagger
         end
 
         def route_verb(route)
-          if defined?(route.verb.source) then route.verb.source.to_s.delete('$'+'^') else route.verb end.downcase.to_sym 
+          if defined?(route.verb.source) then route.verb.source.to_s.delete('$'+'^') else route.verb end.downcase.to_sym
         end
 
         def path_route_nickname(path, route)
@@ -156,7 +155,7 @@ module Swagger
         end
 
         def generate_resource(path, apis, models, settings, root, config)
-          metadata = ApiDeclarationFileMetadata.new(root["apiVersion"], path, root["basePath"],
+          metadata = ApiDeclarationFileMetadata.new(root["apiVersion"], path, root["basePathMetaData"],
                                                    settings[:controller_base_path],
                                                    camelize_model_properties: config.fetch(:camelize_model_properties, true),
                                                    swagger_version: root["swaggerVersion"])
@@ -203,12 +202,14 @@ module Swagger
         end
 
         def get_settings(api_version, config)
+          base_path_metadata = trim_trailing_slash(config[:base_path_metadata] || "")
           base_path = trim_trailing_slash(config[:base_path] || "")
           controller_base_path = trim_leading_slash(config[:controller_base_path] || "")
           base_path += "/#{controller_base_path}" unless controller_base_path.empty?
           api_file_path = config[:api_file_path]
           settings = {
             base_path: base_path,
+            base_path_metadata: base_path_metadata,
             controller_base_path: controller_base_path,
             api_file_path: api_file_path
           }.freeze
